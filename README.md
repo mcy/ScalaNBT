@@ -8,6 +8,10 @@ There are ten data tags:
 * Tags for each of the six Java number primitives, `byte, short, int, long, float, double`, as well as `String`.
 * A list tag that can hold exactly one type of tag.
 * A compound tag (a map) that maps strings to arbitrary tags.
+* An end tag that exists only to denote a missing tag, and does not exist
+
+General tags can be created with `Tag()`. If no Tag type exists that can hold the argument TagEnd will be returned.
+
 
 -----
 
@@ -25,21 +29,25 @@ These are immutable.
 
 `foo = list(1)`
 
-`list(2) = 5.nbt`
+`list(2) = 5`
+
+TagList will use Tag() to convert non-nbt values into tags.
 
 You can also create `TagList`s from `Traversable`s:
  
-`List(1.nbt, 2.nbt).nbt`
+`List(1, 2).nbt`
 
 -----
 
 `TagCompound`s can be manipulated like `Map`s, but you can use dynamic notation too:
 
-`compound.key = "value".nbt`
+`compound.key = "value"`
+
+TagCompound will use Tag() to convert non-nbt values into tags.
 
 You can also create them similarly to `Map`s:
 
-`TagCompound("one" -> 1.nbt, "2" -> "two".nbt)`
+`TagCompound("one" -> 1, "2" -> "two")`
 
 -----
 

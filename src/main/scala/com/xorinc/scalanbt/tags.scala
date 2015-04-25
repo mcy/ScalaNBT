@@ -8,55 +8,89 @@ import Numeric.{ FloatAsIfIntegral, DoubleAsIfIntegral }
 
 package object tags {
 
+  // this exists because the implicit resolver is dumb
   implicit val __fint: Integral[Float] = FloatAsIfIntegral
   implicit val __dint: Integral[Double] = DoubleAsIfIntegral
 
   import scala.collection.GenTraversableOnce
 
-  sealed trait Tag[Self <: Tag[Self]] {
-    self: Self =>
+  sealed trait Tag {
+    type This <: Tag
 
     def companion: TagCompanion
-
     def name: String = companion.name
-
     def id: Int = companion.id
-
     def mojangson: String
+  }
+
+  // this tag doesn't actually exist; Compound and List will discard it
+  sealed trait TagEndLike extends Tag
+  object TagEnd extends TagCompanion("TAG_END", 0) with TagEndLike {
+    override def companion = this
+    override val name: String = super.name
+    override val id: Int = super.id
+    override def mojangson = "null"
+  }
+
+  object Tag {
+
+    def apply(x: Any): Tag = x match {
+      case t: Tag => t
+      case z: Boolean => TagByte(z)
+      case b: Byte => TagByte(b)
+      case h: Short => TagShort(h)
+      case c: Char => TagString(c)
+      case i: Int => TagInt(i)
+      case l: Long => TagLong(l)
+      case f: Float => TagFloat(f)
+      case d: Double => TagDouble(d)
+      case s: String => TagString(s)
+      case s: Symbol => TagString(s)
+      case a: Array[Byte] => TagByteArray(a)
+      case a: Array[Int] => TagIntArray(a)
+      case map: Map[String, Any] => new TagCompound(map.map { case (s, y) => (s, Tag(y)) }.toSeq)
+      case tr: TraversableOnce[Any] => new TagList(tr.map(Tag(_)))
+      case _ => TagEnd
+    }
   }
 
   sealed abstract class TagCompanion(val name: String, val id: Int)
 
   implicit case object TagCompound extends TagCompanion("TAG_COMPOUND", 10) {
-    def apply(xs: (String, Tag[_])*): TagCompound = new TagCompound(xs)
-    def unapplySeq(xs: TagCompound): Option[Seq[(String, Tag[_])]] = Some(xs.toSeq)
+    def apply(xs: (String, Any)*): TagCompound = new TagCompound(xs.map { case (s, y) => (s, Tag(y)) })
+    def unapplySeq(xs: TagCompound): Option[Seq[(String, Tag)]] = Some(xs.toSeq)
   }
 
   import language.dynamics
-  final class TagCompound private (xs: MHMap[String, Tag[_]]) extends Tag[TagCompound] with Dynamic {
+  final class TagCompound private (xs: MHMap[String, Tag]) extends Tag with Dynamic {
 
-    def this(map: Seq[(String, Tag[_])]) = this(MHMap[String, Tag[_]](map: _*))
+    type This = TagCompound
+    
+    def this(map: Seq[(String, Tag)]) = this(MHMap[String, Tag](map: _*))
 
-    private val theMap = xs
+    private val theMap = xs.filter(_._2 ne TagEnd)
 
-    def toSeq: Seq[(String, Tag[_])] = theMap.toSeq
-    def toMap: Map[String, Tag[_]] = theMap.toMap
+    def toSeq: Seq[(String, Tag)] = theMap.toSeq
+    def toMap: Map[String, Tag] = theMap.toMap
 
-    def apply(s: String): Option[Tag[_]] = theMap.get(s)
-    def update(s: String, t: Tag[_]): Unit = theMap(s) = t
-
-    def applyDynamic[T <: Tag[T] : ClassTag](s: String): T = {
-      val ct = classTag[T]
-      ct.runtimeClass.cast(theMap(s)).asInstanceOf[T]
+    def apply(s: String): Tag = theMap.getOrElse(s, TagEnd)
+    def update(s: String, x: Any): Unit = {
+      val t = Tag(x)
+      if(t ne TagEnd) theMap(s) = t
     }
 
-    def updateDynamic(s: String)(t: Tag[_]): Unit = update(s, t)
+    def selectDynamic[T <: Tag : ClassTag](s: String): T = {
+      val ct = classTag[T]
+      ct.runtimeClass.cast(this(s)).asInstanceOf[T]
+    }
 
-    def foreach(f: ((String, Tag[_])) => Unit): Unit = theMap.foreach[Unit](f)
+    def updateDynamic(s: String)(x: Any): Unit = this(s) = x
 
-    def mapValues(f: Tag[_] => Tag[_]): TagCompound = new TagCompound(theMap.mapValues[Tag[_]](f).toSeq)
+    def foreach(f: ((String, Tag)) => Unit): Unit = theMap.foreach[Unit](f)
 
-    def filter(f: ((String, Tag[_])) => Boolean): TagCompound = new TagCompound(theMap.filter(f).toSeq)
+    def mapValues(f: Tag => Any): TagCompound = new TagCompound(theMap.mapValues[Tag](f.andThen(Tag(_))).toSeq)
+
+    def filter(f: ((String, Tag)) => Boolean): TagCompound = new TagCompound(theMap.filter(f).toSeq)
 
     def filterKeys(f: String => Boolean): TagCompound = new TagCompound(theMap.filterKeys(f).toSeq)
 
@@ -80,17 +114,18 @@ package object tags {
   }
 
   implicit case object TagList extends TagCompanion("TAG_LIST", 9) {
-    def apply(xs: Tag[_]*) = new TagList(xs)
-    def unapplySeq(xs: TagList): Option[Seq[Tag[_]]] = Some(xs.toSeq)
+    def apply(xs: Any*) = new TagList(xs.map(Tag(_)))
+    def unapplySeq(xs: TagList): Option[Seq[Tag]] = Some(xs.toSeq)
   }
 
   // TagList is !not! covariant._
-  final class TagList private (xs: ArrayBuffer[Tag[_]]) extends Tag[TagList] {
-    self: TagList =>
+  final class TagList private (xs: ArrayBuffer[Tag]) extends Tag {
 
-    def this(xs: Traversable[Tag[_]]) = this(ArrayBuffer[Tag[_]](xs.toSeq: _*))
+    type This = TagList
 
-    private val theList = xs
+    def this(xs: TraversableOnce[Tag]) = this(ArrayBuffer[Tag](xs.toSeq: _*))
+
+    private val theList = xs.filter(_ ne TagEnd)
 
     if(theList.length > 1){
       val clazz = theList(0).getClass
@@ -98,38 +133,44 @@ package object tags {
         throw new IllegalArgumentException("TagList can contain only one type of tag!")
     }
 
-    def toSeq: Seq[Tag[_]] = theList.toSeq
-    def toArray(implicit ev: ClassTag[Tag[_]]): Array[Tag[_]] = theList.toArray
+    def toSeq: Seq[Tag] = theList.toSeq
+    def toArray(implicit ev: ClassTag[Tag]): Array[Tag] = theList.toArray
 
-    def apply(i: Int): Tag[_] = theList(i)
-    def update(i: Int, x: Tag[_]): Unit = theList(i) = x
+    def apply(i: Int): Tag = theList(i)
+    def update(i: Int, x: Any): Unit = {
+      val t = Tag(x)
+      if(t ne TagEnd) theList(i) = t
+    }
 
-    def add(x: Tag[_]): this.type = {
+    def add(x: Any): this.type = {
+      val t = Tag(x)
+      if(t eq TagEnd) return this
       if(theList.length > 0){
         val clazz = theList(0).getClass
-        if(clazz ne x.getClass)
+        if(clazz ne t.getClass)
           throw new IllegalArgumentException("TagList can contain only one type of tag!")
       }
-      theList += x
+      theList += t
       this
     }
-    def + (x: Tag[_]): this.type = this.add(x)
+    def + (x: Any): this.type = this.add(x)
 
-    def remove(x: Tag[_]): this.type = {
-      theList - x
+    def remove(x: Any): this.type = {
+      theList -= Tag(x)
       this
     }
-    def - (x: Tag[_]): this.type = this.remove(x)
+    def - (x: Any): this.type = this.remove(x)
 
     def length: Int = theList.length
 
-    def foreach(f: Tag[_] => Unit): Unit = theList.foreach(f)
+    def foreach(f: Tag => Unit): Unit = theList.foreach(f)
 
-    def map[B <: Tag[_]](f: Tag[_] => B): TagList = new TagList(theList.map(f))
+    def map(f: Tag => Any): TagList = new TagList(theList.map(f.andThen(Tag(_))).asInstanceOf[TraversableOnce[Tag]])
 
-    def flatMap[B <: Tag[_]](f: Tag[_] => GenTraversableOnce[B]): TagList = new TagList(theList.flatMap(f))
+    def flatMap(f: Tag => GenTraversableOnce[Any]): TagList =
+      new TagList(theList.flatMap(f).map(Tag(_)).asInstanceOf[TraversableOnce[Tag]])
 
-    def filter(f: Tag[_] => Boolean): TagList = new TagList(theList.filter(f))
+    def filter(f: Tag => Boolean): TagList = new TagList(theList.filter(f))
 
     override def companion = TagList
 
@@ -144,8 +185,10 @@ package object tags {
     }
   }
 
-  sealed abstract class ValTag[A, Self <: ValTag[A, Self]](private val x: A) extends Tag[Self] with Serializable with Cloneable {
+  sealed abstract class ValTag[A, Self <: ValTag[A, Self]](private val x: A) extends Tag with Serializable with Cloneable {
     self: Self =>
+
+    type This = Self
 
     def get: A = x
 
@@ -186,6 +229,7 @@ package object tags {
 
     def toByte:   Byte   = ops.toInt(x).toByte
     def toShort:  Short  = ops.toInt(x).toShort
+    def toChar:   Char   = ops.toInt(x).toChar
     def toInt:    Int    = ops.toInt(x)
     def toLong:   Long   = ops.toLong(x)
     def toFloat:  Float  = ops.toFloat(x)
@@ -238,12 +282,25 @@ package object tags {
     def nbt[T <: ValTag[A, T]](implicit ev: ValTagCompanion[A, T]): T = ev(x)
   }
 
-  implicit class __toNBTList[A <: Tag[_]](val x: Traversable[A]) extends AnyVal {
-    def nbt: TagList = TagList(x.toSeq: _*)
+  implicit class __bool2NBT(val b: Boolean) extends AnyVal {
+    def nbt: TagByte = TagByte(b)
+  }
+
+  implicit class __char2NBT(val c: Char) extends AnyVal {
+    def nbt: TagString = TagString(c)
+  }
+
+  implicit class __sym2NBT(val s: Symbol) extends AnyVal {
+    def nbt: TagString = TagString(s)
+  }
+
+  implicit class __toNBTList(val x: TraversableOnce[Any]) extends AnyVal {
+    def nbt: TagList = Tag(x).asInstanceOf[TagList]
   }
 
   implicit case object TagByte extends NumericValTagCompanion[Byte, TagByte]("TAG_BYTE", 1) {
     def apply(x: Byte): TagByte = new TagByte(x)
+    def apply(b: Boolean): TagByte = new TagByte(if(b) 1 else 0)
   }
 
   final class TagByte(x: Byte)
@@ -300,11 +357,13 @@ package object tags {
   implicit case object TagString extends ValTagCompanion[String, TagString]("TAG_SRING", 8) {
     implicit def extractTagString(s: TagString): String = s.get
     def apply(x: String): TagString = new TagString(x)
+    def apply(x: Char): TagString = new TagString(x.toString)
+    def apply(x: Symbol): TagString = new TagString(x.toString)
   }
 
   final class TagString(x: String) extends ValTag[String, TagString](x) {
     override def companion = TagString
-    override def mojangson = x
+    override def mojangson = "\"" + x.replace("\"","\\\"") + "\""
   }
 
   implicit case object TagByteArray extends ValTagCompanion[Array[Byte], TagByteArray]("TAG_BYTE_ARRAY", 7) {

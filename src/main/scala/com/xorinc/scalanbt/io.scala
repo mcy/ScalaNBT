@@ -2,6 +2,7 @@ package com.xorinc.scalanbt
 
 import java.io.{Console => _, _}
 import tags._
+import java.util.zip.{GZIPOutputStream, GZIPInputStream}
 
 package object io {
 
@@ -60,7 +61,7 @@ package object io {
     }
     def parseList(): TagList = {
       val id = readByte()
-        val parseFunc: () => Tag[_] =
+        val parseFunc: () => Tag =
           id match {
             case 0 => () => null
             case 1 => () => readByte().nbt
@@ -86,7 +87,7 @@ package object io {
   def writeNBT(out: DataOutput)(tag: (String, TagCompound)) = {
     import out._
 
-    def writeTag(s: String, t: Tag[_]): Unit = {
+    def writeTag(s: String, t: Tag): Unit = {
       if(s ne null) {
         writeByte(t.id.toByte)
         writeStr(s)
@@ -127,7 +128,7 @@ package object io {
     }
 
     def writeCompound(c: TagCompound): Unit = {
-      for((s: String, t: Tag[_]) <- c.toMap){
+      for((s: String, t: Tag) <- c.toMap){
         writeTag(s, t)
       }
       writeByte(0)
@@ -150,8 +151,10 @@ package object io {
     writeCompound(tag._2)
   }
 
-  def readNBT(in: InputStream): (String, TagCompound) = readNBT(new DataInputStream(in).asInstanceOf[DataInput])
-  def writeNBT(out: OutputStream)(tag: (String, TagCompound)): Unit = writeNBT(new DataOutputStream(out).asInstanceOf[DataOutput])(tag)
+  def readNBT(in: InputStream, deflate: Boolean = false): (String, TagCompound) =
+    readNBT(new DataInputStream(if (deflate) new GZIPInputStream(in) else in).asInstanceOf[DataInput])
+  def writeNBT(out: OutputStream, inflate: Boolean = false)(tag: (String, TagCompound)): Unit =
+    writeNBT(new DataOutputStream(if (inflate) new GZIPOutputStream(out) else out).asInstanceOf[DataOutput])(tag)
 
   implicit class __bytearray(val a: Array[Byte]) extends AnyVal {
     def parseNBT: (String, TagCompound) = {
