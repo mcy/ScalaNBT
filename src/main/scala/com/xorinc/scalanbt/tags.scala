@@ -216,43 +216,95 @@ package object tags {
   sealed abstract class NumericValTag[A, Self <: NumericValTag[A, Self]](x: A)
     extends ValTag[A, Self](x) with Ordered[Self] { self: Self =>
 
-    private val ops: Integral[A] = companion.numeric
+    def +(y: Self): Self = companion.plus(this, y)
+    def -(y: Self): Self = companion.minus(this, y)
+    def *(y: Self): Self = companion.times(this, y)
+    def /(y: Self): Self = companion.quot(this, y)
+    def %(y: Self): Self = companion.rem(this, y)
 
-    def +(y: Self): Self = companion(ops.plus(x, y.get))
-    def -(y: Self): Self = companion(ops.minus(x, y.get))
-    def *(y: Self): Self = companion(ops.times(x, y.get))
-    def /(y: Self): Self = companion(ops.quot(x, y.get))
-    def %(y: Self): Self = companion(ops.rem(x, y.get))
-
-    def unary_- : Self = companion(ops.negate(x))
+    def unary_- : Self = companion.negate(this)
     def unary_+ : Self = this
 
-    def toByte:   Byte   = ops.toInt(x).toByte
-    def toShort:  Short  = ops.toInt(x).toShort
-    def toChar:   Char   = ops.toInt(x).toChar
-    def toInt:    Int    = ops.toInt(x)
-    def toLong:   Long   = ops.toLong(x)
-    def toFloat:  Float  = ops.toFloat(x)
-    def toDouble: Double = ops.toDouble(x)
+    def toByte:    Byte    = companion.toInt(this).toByte
+    def toShort:   Short   = companion.toInt(this).toShort
+    def toChar:    Char    = companion.toInt(this).toChar
+    def toInt:     Int     = companion.toInt(this)
+    def toLong:    Long    = companion.toLong(this)
+    def toFloat:   Float   = companion.toFloat(this)
+    def toDouble:  Double  = companion.toDouble(this)
+    def toBoolean: Boolean = companion.toInt(this) != 0
 
-    def nbtByte:   TagByte   = TagByte(ops.toInt(x).toByte)
-    def nbtShort:  TagShort  = TagShort(ops.toInt(x).toShort)
-    def nbtInt:    TagInt    = TagInt(ops.toInt(x))
-    def nbtLong:   TagLong   = TagLong(ops.toLong(x))
-    def nbtFloat:  TagFloat  = TagFloat(ops.toFloat(x))
-    def nbtDouble: TagDouble = TagDouble(ops.toDouble(x))
+    def nbtByte:   TagByte   = TagByte(toByte)
+    def nbtShort:  TagShort  = TagShort(toShort)
+    def nbtInt:    TagInt    = TagInt(toInt)
+    def nbtLong:   TagLong   = TagLong(toLong)
+    def nbtFloat:  TagFloat  = TagFloat(toFloat)
+    def nbtDouble: TagDouble = TagDouble(toDouble)
 
-    def abs: Self = companion(ops.abs(x))
+    def abs: Self = companion.abs(this)
 
-    override def compare(that: Self): Int = ops.compare(x, that.get)
+    override def compare(that: Self): Int = companion.compare(this, that)
 
     override def companion: NumericValTagCompanion[A, Self]
 
   }
 
   sealed abstract class NumericValTagCompanion[A : Integral, Self <: NumericValTag[A, Self]](name: String, id: Int)
-    extends ValTagCompanion[A, Self](name, id){
-    val numeric: Integral[A] = implicitly[Integral[A]]
+    extends ValTagCompanion[A, Self](name, id) with Integral[Self] {
+    val ops: Integral[A] = implicitly[Integral[A]]
+
+    def plus (x: Self, y: Self): Self = this(ops.plus (x.get, y.get))
+    def minus(x: Self, y: Self): Self = this(ops.minus(x.get, y.get))
+    def times(x: Self, y: Self): Self = this(ops.times(x.get, y.get))
+    def quot (x: Self, y: Self): Self = this(ops.quot (x.get, y.get))
+    def rem  (x: Self, y: Self): Self = this(ops.rem  (x.get, y.get))
+
+    def negate(x: Self): Self = this(ops.negate(x.get))
+
+    def toByte   (x: Self):    Byte   = ops.toInt(x.get).toByte
+    def toShort  (x: Self):   Short   = ops.toInt(x.get).toShort
+    def toInt    (x: Self):     Int   = ops.toInt(x.get)
+    def toLong   (x: Self):    Long   = ops.toLong(x.get)
+    def toFloat  (x: Self):   Float   = ops.toFloat(x.get)
+    def toDouble (x: Self):  Double   = ops.toDouble(x.get)
+
+    override def compare(x: Self, y: Self): Int = ops.compare(x.get, y.get)
+
+    override def zero: Self = this(ops.zero)
+    override def one: Self = this(ops.one)
+
+    override def abs(x: Self): Self = this(ops.abs(x.get))
+    override def signum(x: Self): Int = ops.signum(x.get)
+  }
+
+  sealed abstract class BitwiseValTag[A, Self <: BitwiseValTag[A, Self]](x: A)
+    extends NumericValTag[A, Self](x) with Ordered[Self] { self: Self =>
+
+    def &(y: Self): Self = companion.and(this, y)
+    def |(y: Self): Self = companion.or (this, y)
+    def ^(y: Self): Self = companion.xor(this, y)
+    
+    def unary_~ : Self = companion.not(this)
+    
+    def >> (i: Int): Self = companion.r2(this, i)
+    def << (i: Int): Self = companion.l2(this, i)
+    def >>>(i: Int): Self = companion.r3(this, i)
+
+    override def companion: BitwiseValTagCompanion[A, Self]
+  }
+
+  sealed abstract class BitwiseValTagCompanion[A : Integral, Self <: NumericValTag[A, Self]](name: String, id: Int)
+    extends NumericValTagCompanion[A, Self](name, id) {
+
+    def and(x: Self, y: Self): Self
+    def or (x: Self, y: Self): Self
+    def xor(x: Self, y: Self): Self
+
+    def not(x: Self): Self
+
+    def r2(x: Self, i: Int): Self
+    def l2(x: Self, i: Int): Self
+    def r3(x: Self, i: Int): Self
   }
 
   sealed trait ArrayValTag[A, Self <: ValTag[Array[A], Self]] extends ValTag[Array[A], Self] {
@@ -298,46 +350,96 @@ package object tags {
     def nbt: TagList = Tag(x).asInstanceOf[TagList]
   }
 
-  implicit case object TagByte extends NumericValTagCompanion[Byte, TagByte]("TAG_BYTE", 1) {
+  implicit case object TagByte extends BitwiseValTagCompanion[Byte, TagByte]("TAG_BYTE", 1) {
     def apply(x: Byte): TagByte = new TagByte(x)
     def apply(b: Boolean): TagByte = new TagByte(if(b) 1 else 0)
+
+    def and(x: TagByte, y: TagByte): TagByte = this((x.get & y.get).toByte)
+    def or (x: TagByte, y: TagByte): TagByte = this((x.get | y.get).toByte)
+    def xor(x: TagByte, y: TagByte): TagByte = this((x.get ^ y.get).toByte)
+
+    def not(x: TagByte): TagByte = this(x.get.unary_~.toByte)
+
+    def r2(x: TagByte, i: Int): TagByte = this((x.get >> i).toByte)
+    def l2(x: TagByte, i: Int): TagByte = this((x.get << i).toByte)
+    def r3(x: TagByte, i: Int): TagByte = this((x.get >>> i).toByte)
+
+    def fromInt(x: Int): TagByte = this(x.toByte)
   }
 
   final class TagByte(x: Byte)
-    extends NumericValTag[Byte, TagByte](x) {
+    extends BitwiseValTag[Byte, TagByte](x) {
     override def companion = TagByte
     override def mojangson = x + "b"
   }
 
-  implicit case object TagShort extends NumericValTagCompanion[Short, TagShort]("TAG_SHORT", 2) {
+  implicit case object TagShort extends BitwiseValTagCompanion[Short, TagShort]("TAG_SHORT", 2) {
     def apply(x: Short): TagShort = new TagShort(x)
+
+    def and(x: TagShort, y: TagShort): TagShort = this((x.get & y.get).toShort)
+    def or (x: TagShort, y: TagShort): TagShort = this((x.get | y.get).toShort)
+    def xor(x: TagShort, y: TagShort): TagShort = this((x.get ^ y.get).toShort)
+
+    def not(x: TagShort): TagShort = this(x.get.unary_~.toShort)
+
+    def r2(x: TagShort, i: Int): TagShort = this((x.get >> i).toShort)
+    def l2(x: TagShort, i: Int): TagShort = this((x.get << i).toShort)
+    def r3(x: TagShort, i: Int): TagShort = this((x.get >>> i).toShort)
+
+    def fromInt(x: Int): TagShort = this(x.toShort)
   }
 
-  final class TagShort(x: Short) extends NumericValTag[Short, TagShort](x) {
+  final class TagShort(x: Short) extends BitwiseValTag[Short, TagShort](x) {
     override def companion = TagShort
     override def mojangson = x + "s"
   }
 
-  implicit case object TagInt extends NumericValTagCompanion[Int, TagInt]("TAG_INT", 3) {
+  implicit case object TagInt extends BitwiseValTagCompanion[Int, TagInt]("TAG_INT", 3) {
     def apply(x: Int): TagInt = new TagInt(x)
+
+    def and(x: TagInt, y: TagInt): TagInt = this(x.get & y.get)
+    def or (x: TagInt, y: TagInt): TagInt = this(x.get | y.get)
+    def xor(x: TagInt, y: TagInt): TagInt = this(x.get ^ y.get)
+
+    def not(x: TagInt): TagInt = this(x.get.unary_~)
+
+    def r2(x: TagInt, i: Int): TagInt = this(x.get >> i)
+    def l2(x: TagInt, i: Int): TagInt = this(x.get << i)
+    def r3(x: TagInt, i: Int): TagInt = this(x.get >>> i)
+
+    def fromInt(x: Int): TagInt = this(x)
   }
 
-  final class TagInt(x: Int) extends NumericValTag[Int, TagInt](x) {
+  final class TagInt(x: Int) extends BitwiseValTag[Int, TagInt](x) {
     override def companion = TagInt
     override def mojangson = x.toString
   }
 
-  implicit case object TagLong extends NumericValTagCompanion[Long, TagLong]("TAG_LONG", 4) {
+  implicit case object TagLong extends BitwiseValTagCompanion[Long, TagLong]("TAG_LONG", 4) {
     def apply(x: Long): TagLong = new TagLong(x)
+
+    def and(x: TagLong, y: TagLong): TagLong = this(x.get & y.get)
+    def or (x: TagLong, y: TagLong): TagLong = this(x.get | y.get)
+    def xor(x: TagLong, y: TagLong): TagLong = this(x.get ^ y.get)
+
+    def not(x: TagLong): TagLong = this(x.get.unary_~)
+
+    def r2(x: TagLong, i: Int): TagLong = this(x.get >> i)
+    def l2(x: TagLong, i: Int): TagLong = this(x.get << i)
+    def r3(x: TagLong, i: Int): TagLong = this(x.get >>> i)
+
+    def fromInt(x: Int): TagLong = this(x)
   }
 
-  final class TagLong(x: Long) extends NumericValTag[Long, TagLong](x) {
+  final class TagLong(x: Long) extends BitwiseValTag[Long, TagLong](x) {
     override def companion = TagLong
     override def mojangson = x + "L"
   }
 
   implicit case object TagFloat extends NumericValTagCompanion[Float, TagFloat]("TAG_FLOAT", 5) {
     def apply(x: Float): TagFloat = new TagFloat(x)
+
+    def fromInt(x: Int): TagFloat = this(x)
   }
 
   final class TagFloat(x: Float) extends NumericValTag[Float, TagFloat](x) {
@@ -347,6 +449,8 @@ package object tags {
 
   implicit case object TagDouble extends NumericValTagCompanion[Double, TagDouble]("TAG_DOUBLE", 6) {
     def apply(x: Double): TagDouble = new TagDouble(x)
+
+    def fromInt(x: Int): TagDouble = this(x)
   }
 
   final class TagDouble(x: Double) extends NumericValTag[Double, TagDouble](x) {
